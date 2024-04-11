@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib as mpl
 import os 
 from pyntcloud import PyntCloud
+from sklearn.preprocessing import MinMaxScaler
 import time
 
 # start_time = time.time()
@@ -11,8 +12,10 @@ class preprocessor():
     def __init__(self, input_path):
         self.coord_paths = []
         self.label_paths = []
+        self.input_path = input_path
 
         error = self.collect_paths(input_path)
+        #print(error)
         if error > 0:
             exit("***ERROR: NOT ENOUGH LABEL FILES FOUND FOR COORD FILES... TERMINATING")
         elif error < 0:
@@ -25,59 +28,94 @@ class preprocessor():
         print("----------------")
         print("\n".join(self.label_paths))
 
-        self.generate_matrices()
-
 
     def collect_paths(self, input_path):
         for root, dirs, files in os.walk(input_path):
             for name in files:
+                #print(name)
                 if name.lower().endswith(".txt"):
                     self.coord_paths.append(os.path.join(root, name))
+                if name.lower().endswith(".labels"):
+                    self.label_paths.append(os.path.join(root, name))
+            """
             for sub_dir in dirs:
                 for label_root, _, label_files in os.walk(os.path.join(root,sub_dir)):
                     for labels in label_files:
                         if labels.lower().endswith(".labels"):
                             self.label_paths.append(os.path.join(label_root, labels))
+            """
         return len(self.coord_paths) - len(self.label_paths)
 
 
-    def generate_matrices(self):
-        folder_path = "preprocessed_data\\"
+    def generate_matrices(self, sample_size = 2048, number_of_samples_per_label = 32):
+        folder_path = self.input_path + "/matrices"
         os.makedirs(folder_path, exist_ok=True)
-        processed_list = [np.empty((0,0,0))]*9
+        
         for scene in range(len(self.coord_paths)): #len(self.coord_paths)
-            coords = np.genfromtxt(self.coord_paths[scene], dtype=float,usecols=(0,1,2))
-            labels = np.genfromtxt(self.label_paths[scene], dtype=int)
+            #raw_point_cloud = np.genfromtxt(self.coord_paths[scene], dtype=float,usecols=(0,1,2))
+            #labels = np.genfromtxt(self.label_paths[scene], dtype=int)
+            raw_point_cloud = pd.read_csv(self.coord_paths[scene], usecols=[0,1,2], delimiter= " ", header=None).values
+            labels = pd.read_csv(self.label_paths[scene], header = None).values
+            print(np.shape(raw_point_cloud))
+            print(np.shape(labels)) 
             for i in range(9):
                 # Extracting points associated with current feature
-                mask = (labels == i)
-                pts = coords[mask]
-                # Sampling 2048 points
-                if len(pts) > 2048:
-                    pts = pts[np.random.choice(pts.shape[0], size = 2048)]
-                elif len(pts) < 2048:
-                    pad_width = ((0,1),(0,0))
-                    while len(pts) < 2048:
-                        pts = np.pad(pts,pad_width,mode='constant',constant_values=0)
-                # Normalizing points to [-1,1]
-                pts = 2.*(pts-np.min(pts,axis=0))/np.ptp(pts,axis=0)-1 #pts = pts / np.max(np.abs(pts),axis=0) * 2
+                point_cloud_objects = []
+                label_mask_1d = (labels == i)
+                print(label_mask_1d[:5])
+                print(label_mask_1d.shape)
+                label_mask_2d = np.repeat(label_mask_1d, raw_point_cloud.shape[1]).reshape(-1,raw_point_cloud.shape[1])
 
+                print(label_mask_2d[:5])
+                print(label_mask_2d.shape)
+                label_point_cloud = raw_point_cloud[label_mask_2d].reshape(-1,raw_point_cloud.shape[1])
+                print(label_point_cloud[:5])
+                print(f"{label_point_cloud.shape}")
+                
+                # Sampling {sample_size} points
+                if len(label_point_cloud) > sample_size:
+                    for sample_number in range(number_of_samples_per_label):
+                        random_indices = np.random.choice(label_point_cloud.shape[0], sample_size, replace=False)
+                        point_cloud_object = label_point_cloud[random_indices]
+                        print(point_cloud_object.shape)
+                        point_cloud_objects.append(point_cloud_object)
+                        #normalized_point_cloud_object = 2.*(point_cloud_object-np.min(point_cloud_object,axis=0))/np.ptp(point_cloud_object,axis=0)-1
+                        #point_cloud_objects[sample_number] = normalized_point_cloud_object
+                                 
+                elif len(label_point_cloud) < sample_size:
+                    print(f'{self.coord_paths[scene]} has less than {sample_size} points for label {i}... padding')
+                    for sample_number in range(number_of_samples_per_label):
+                        point_cloud_object = np.pad(label_point_cloud, ((0,sample_size-len(label_point_cloud)),(0,0)), 'wrap')
+                        point_cloud_objects.append(point_cloud_object)
+                        #normalized_point_cloud_object = 2.*(point_cloud_object-np.min(point_cloud_object,axis=0))/np.ptp(point_cloud_object,axis=0)-1
+                
+                #stack the 2d arrays
+                stacked_point_cloud_objects = np.stack(point_cloud_objects)
+                print(stacked_point_cloud_objects.shape)
+                np.save(f"{folder_path}/{scene}_{i}.npy", stacked_point_cloud_objects, allow_pickle=False)
+                
+                #normalize features
+                # Normalizing points to [-1,1]
+                 #label_point_cloud = label_point_cloud / np.max(np.abs(label_point_cloud),axis=0) * 2
+
+                """
                 if processed_list[i].size == 0:
-                    processed_list[i] = pts[np.newaxis,:]
+                    processed_list[i] = label_point_cloud[np.newaxis,:]
                     print(np.shape(processed_list[i]))
                 else:
-                    pts = pts[np.newaxis,:]
-                    processed_list[i] = np.concatenate((processed_list[i],pts), axis=0)
+                    label_point_cloud = label_point_cloud[np.newaxis,:]
+                    processed_list[i] = np.concatenate((processed_list[i],label_point_cloud), axis=0)
 
-        for matrix in range(len(processed_list)):
-            file_path = os.path.join(folder_path, f"{str(matrix)}.npy")
-            np.save(file_path,processed_list[matrix])
-                
-
-
+                for matrix in range(len(processed_list)):
+                    file_path = os.path.join(folder_path, f"{str(matrix)}.npy")
+                    np.save(file_path,processed_list[matrix], allow_pickle=False)
+                """
 
 
-mypreprocessor = preprocessor("input\\")
+
+
+mypreprocessor = preprocessor("/share/lsmsmart/regarry/Terrain3DPointCloudGeneration/data/test")
+mypreprocessor.generate_matrices(2048,32)
 # data = np.load("C:\\Users\\ofwol\\Documents\\PythonProjects\\Terrain3DPointCloudGeneration\\data\\chair_test.npy")
 # print(np.shape(data))
 
