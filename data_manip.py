@@ -10,48 +10,41 @@ import time
 
 class preprocessor():
     def __init__(self, input_path):
-        self.coord_paths = []
-        self.label_paths = []
         self.input_path = input_path
+        self.coord_paths, self.label_paths, self.error = self.collect_paths(input_path)
 
-        error = self.collect_paths(input_path)
-        #print(error)
+    def collect_paths(self, input_path):
+        coord_paths = []
+        label_paths = []
+        for root, dirs, files in os.walk(input_path):
+            for name in files:
+                if name.lower().endswith(".txt"):
+                    coord_paths.append(os.path.join(root, name))
+                if name.lower().endswith(".labels"):
+                    label_paths.append(os.path.join(root, name))
+        error = len(coord_paths) - len(label_paths)
         if error > 0:
             exit("***ERROR: NOT ENOUGH LABEL FILES FOUND FOR COORD FILES... TERMINATING")
         elif error < 0:
             exit("***ERROR: MORE LABEL FILES FOUND THAN COORD FILES... TERMINATING")
 
-        print(f"\n{len(self.coord_paths)} TXT FILES: ")
+        print(f"\n{len(coord_paths)} TXT FILES: ")
         print("----------------")
-        print("\n".join(self.coord_paths))
-        print(f"\n{len(self.label_paths)} LABELS FILES: ")
+        print("\n".join(coord_paths))
+        print(f"\n{len(label_paths)} LABELS FILES: ")
         print("----------------")
-        print("\n".join(self.label_paths))
-
-
-    def collect_paths(self, input_path):
-        for root, dirs, files in os.walk(input_path):
-            for name in files:
-                #print(name)
-                if name.lower().endswith(".txt"):
-                    self.coord_paths.append(os.path.join(root, name))
-                if name.lower().endswith(".labels"):
-                    self.label_paths.append(os.path.join(root, name))
-            """
-            for sub_dir in dirs:
-                for label_root, _, label_files in os.walk(os.path.join(root,sub_dir)):
-                    for labels in label_files:
-                        if labels.lower().endswith(".labels"):
-                            self.label_paths.append(os.path.join(label_root, labels))
-            """
-        return len(self.coord_paths) - len(self.label_paths)
-
+        print("\n".join(label_paths))
+        return coord_paths, label_paths, error
+    
+    def normalize(self,data):
+        return 2 * (data - np.min(data)) / (np.max(data) - np.min(data)) - 1
 
     def generate_matrices(self, sample_size = 2048, number_of_samples_per_label = 32):
-        folder_path = self.input_path + "/matrices"
-        os.makedirs(folder_path, exist_ok=True)
+        matrix_output_folder = self.input_path + "/matrices"
+        os.makedirs(matrix_output_folder, exist_ok=True)
         
         for scene in range(len(self.coord_paths)): #len(self.coord_paths)
+            name = self.coord_paths[scene].split("/")[-1].split(".")[0]
             #raw_point_cloud = np.genfromtxt(self.coord_paths[scene], dtype=float,usecols=(0,1,2))
             #labels = np.genfromtxt(self.label_paths[scene], dtype=int)
             raw_point_cloud = pd.read_csv(self.coord_paths[scene], usecols=[0,1,2], delimiter= " ", header=None).values
@@ -62,22 +55,22 @@ class preprocessor():
                 # Extracting points associated with current feature
                 point_cloud_objects = []
                 label_mask_1d = (labels == i)
-                print(label_mask_1d[:5])
-                print(label_mask_1d.shape)
+                #print(label_mask_1d[:5])
+                #print(label_mask_1d.shape)
                 label_mask_2d = np.repeat(label_mask_1d, raw_point_cloud.shape[1]).reshape(-1,raw_point_cloud.shape[1])
 
-                print(label_mask_2d[:5])
-                print(label_mask_2d.shape)
+                #print(label_mask_2d[:5])
+                #print(label_mask_2d.shape)
                 label_point_cloud = raw_point_cloud[label_mask_2d].reshape(-1,raw_point_cloud.shape[1])
-                print(label_point_cloud[:5])
-                print(f"{label_point_cloud.shape}")
+                #print(label_point_cloud[:5])
+                #print(f"{label_point_cloud.shape}")
                 
                 # Sampling {sample_size} points
                 if len(label_point_cloud) > sample_size:
                     for sample_number in range(number_of_samples_per_label):
                         random_indices = np.random.choice(label_point_cloud.shape[0], sample_size, replace=False)
                         point_cloud_object = label_point_cloud[random_indices]
-                        print(point_cloud_object.shape)
+                        #print(point_cloud_object.shape)
                         point_cloud_objects.append(point_cloud_object)
                         #normalized_point_cloud_object = 2.*(point_cloud_object-np.min(point_cloud_object,axis=0))/np.ptp(point_cloud_object,axis=0)-1
                         #point_cloud_objects[sample_number] = normalized_point_cloud_object
@@ -91,153 +84,16 @@ class preprocessor():
                 
                 #stack the 2d arrays
                 stacked_point_cloud_objects = np.stack(point_cloud_objects)
-                print(stacked_point_cloud_objects.shape)
-                np.save(f"{folder_path}/{scene}_{i}.npy", stacked_point_cloud_objects, allow_pickle=False)
+                #print(stacked_point_cloud_objects.shape)
+                normalized_stacked_point_cloud_objects = stacked_point_cloud_objects
+                for j in range(normalized_stacked_point_cloud_objects.shape[2]):
+                    normalized_stacked_point_cloud_objects[:,:,j] = self.normalize(normalized_stacked_point_cloud_objects[:,:,j])
+                print(normalized_stacked_point_cloud_objects.shape)
+                name_table = {0:"unlabeled", 1:"man_made", 2:"natural", 3:"high_veg",4:"low_veg",5:"buildings",6:"hard_scape",7:"artifacts",8:"cars"}
+                np.save(f"{matrix_output_folder}/{name}_{name_table[i]}.npy", normalized_stacked_point_cloud_objects, allow_pickle=False)
                 
-                #normalize features
-                # Normalizing points to [-1,1]
-                 #label_point_cloud = label_point_cloud / np.max(np.abs(label_point_cloud),axis=0) * 2
-
-                """
-                if processed_list[i].size == 0:
-                    processed_list[i] = label_point_cloud[np.newaxis,:]
-                    print(np.shape(processed_list[i]))
-                else:
-                    label_point_cloud = label_point_cloud[np.newaxis,:]
-                    processed_list[i] = np.concatenate((processed_list[i],label_point_cloud), axis=0)
-
-                for matrix in range(len(processed_list)):
-                    file_path = os.path.join(folder_path, f"{str(matrix)}.npy")
-                    np.save(file_path,processed_list[matrix], allow_pickle=False)
-                """
-
-
+            
 
 
 mypreprocessor = preprocessor("/share/lsmsmart/regarry/Terrain3DPointCloudGeneration/data/test")
-mypreprocessor.generate_matrices(2048,32)
-# data = np.load("C:\\Users\\ofwol\\Documents\\PythonProjects\\Terrain3DPointCloudGeneration\\data\\chair_test.npy")
-# print(np.shape(data))
-
-
-# data_path = "C:\\Users\\ofwol\\Documents\\PythonProjects\\765\\input\\bildstein_station1_xyz_intensity_rgb\\bildstein_station1_xyz_intensity_rgb.txt"
-# label_path = "C:\\Users\\ofwol\\Documents\\PythonProjects\\765\\input\\sem8_labels_training\\bildstein_station1_xyz_intensity_rgb.labels"
-# class PointCloud():
-#     def __init__(self, data_path, label_path):
-#         unlabeled = []
-#         man_made = []
-#         natural = []
-#         high_veg =[]
-#         low_veg =[]
-#         buildings =[]
-#         hard_scape =[]
-#         artefacts =[]
-#         cars =[]
-
-#         self.dataframes = []
-
-#         with open(label_path) as label_file, open(data_path) as coord_file:
-#             for label_line, coord_line in zip(label_file, coord_file):
-#                 label = int(label_line.strip())  # Convert label to an integer
-#                 x, y, z, i, r, g, b = map(float, coord_line.strip().split())  # Extract coordinates
-#                 values = [x, y, z]
-#                 match label:
-#                     case 0:
-#                         unlabeled.append(values)
-#                     case 1:
-#                         man_made.append(values)
-#                     case 2:
-#                         natural.append(values)
-#                     case 3:
-#                         high_veg.append(values)
-#                     case 4:
-#                         low_veg.append(values)
-#                     case 5:
-#                         buildings.append(values)
-#                     case 6:
-#                         hard_scape.append(values)
-#                     case 7:
-#                         artefacts.append(values)
-#                     case 8:
-#                         cars.append(values)
-
-#         self.unlabeled_df = pd.DataFrame(unlabeled, columns=["x","y","z"])
-#         #self.unlabeled_df.style.set_caption("unlabeled")
-#         self.man_made_df = pd.DataFrame(man_made, columns=["x","y","z"])
-#         #self.man_made_df.style.set_caption("man_made")
-#         self.natural_df = pd.DataFrame(natural, columns=["x","y","z"])
-#         #self.natural_df.style.set_caption("natural")
-#         self.high_veg_df = pd.DataFrame(high_veg, columns=["x","y","z"])
-#         #self.high_veg_df.style.set_caption("high_veg")
-#         self.low_veg_df = pd.DataFrame(low_veg, columns=["x","y","z"])
-#         #self.low_veg_df.style.set_caption("low_veg")
-#         self.buildings_df = pd.DataFrame(buildings, columns=["x","y","z"])
-#         #self.buildings_df.style.set_caption("buildings")
-#         self.hard_scape_df = pd.DataFrame(hard_scape, columns=["x","y","z"])
-#         #self.hard_scape_df.style.set_caption("hard_scape")
-#         self.artefacts_df = pd.DataFrame(artefacts, columns=["x","y","z"])
-#         #self.artefacts_df.style.set_caption("artefacts")
-#         self.cars_df = pd.DataFrame(cars, columns=["x","y","z"])
-#         #self.cars_df.style.set_caption("cars")
-
-#         self.dataframes.append(self.unlabeled_df)
-#         self.dataframes.append(self.man_made_df)
-#         self.dataframes.append(self.natural_df)
-#         self.dataframes.append(self.high_veg_df)
-#         self.dataframes.append(self.low_veg_df)
-#         self.dataframes.append(self.buildings_df)
-#         self.dataframes.append(self.hard_scape_df)
-#         self.dataframes.append(self.artefacts_df)
-#         self.dataframes.append(self.cars_df)
-
-        
-#         #NORMALIZING DATA TO -1 to 1
-#         for df in self.dataframes:
-#             for col in df.columns:
-#                 df[col] = self.abs_max_scale(df[col])
-
-#         self.buildings_df.to_pickle("pickles\\buildings.pkl")
-
-#     def plot_segments(self, id, s):
-#         match id:
-#             case 0:
-#                 cloud = PyntCloud(self.unlabeled_df.sample(s))
-#             case 1:
-#                 cloud = PyntCloud(self.man_made_df.sample(s))
-#             case 2:
-#                 cloud = PyntCloud(self.natural_df.sample(s))
-#             case 3:
-#                 cloud = PyntCloud(self.high_veg_df.sample(s))
-#             case 4:
-#                 cloud = PyntCloud(self.low_veg_df.sample(s))
-#             case 5:
-#                 cloud = PyntCloud(self.buildings_df.sample(s))
-#             case 6:
-#                 cloud = PyntCloud(self.hard_scape_df.sample(s))
-#             case 7:
-#                 cloud = PyntCloud(self.artefacts_df.sample(s))
-#             case 8:
-#                 cloud = PyntCloud(self.cars_df.sample(s))
-#         cloud.plot(width=1000, height=1000, backend="matplotlib")
-
-#     def abs_max_scale(ind,col):
-#         return col / col.abs().max()
-
-# myCloud = PointCloud(data_path, label_path)
-# end_time = time.time()
-
-# # Calculate the runtime
-# runtime_seconds = end_time - start_time
-# runtime_minutes = runtime_seconds / 60
-
-# print(f"Total Parse Time: {runtime_seconds:.2f} seconds ({runtime_minutes:.2f} minutes)")
-
-# while True:
-#     id = input("Enter ID of points to display, 'q' to quit: ")
-#     if id == 'q':
-#         break
-#     sample = input("number of points to sample, 'q' to quit: ")
-#     if sample == 'q':
-#         break
-#     else:
-#         myCloud.plot_segments(int(id), int(sample))
+mypreprocessor.generate_matrices(2048, 512)
