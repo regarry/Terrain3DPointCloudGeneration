@@ -115,9 +115,8 @@ class GPointNet(pl.LightningModule):
         self.log('syn/scale_min', syn_pcs.min())
 
         if self.C.stable_check and var.cpu().data.numpy() > self.C.ref_sigma**2 + 0.1:
-
-        # Activate stable check if var is bigger than threshold. 
-        # Resample 10 times, if every one is bigger than threshold, load previous checkpoint. 
+            # Activate stable check if var is bigger than threshold. 
+            # Resample 10 times, if every one is bigger than threshold, load previous checkpoint. 
             print("Stable check activated : var = %.4f" % var.cpu().data.numpy())
             for i in range(10):
                 if self.C.warm_start and batch_idx in self.syn_buffer: 
@@ -168,6 +167,7 @@ class CheckpointEveryNSteps(pl.Callback):
     def on_batch_end(self, trainer, model):
         # Update langevin noise decay 
         current_step = trainer.global_step + 1
+        #self.current_step = current_step
         if model.C.langevin_decay:
             model.langevin_noise_decay = max(0, (int(model.C.num_steps)*0.9 - current_step) / (int(model.C.num_steps)*0.9))
         if current_step % self.every_n_step == 0:
@@ -279,7 +279,7 @@ def main(opt):
                             amp_level=opt.fp16, precision=32 if opt.fp16 == "None" else 16,
                             log_every_n_steps=10,
                             flush_logs_every_n_steps=10,
-                            # accelerator="ddp",
+                            accelerator="ddp",
                             callbacks=[CheckpointEveryNSteps(opt.eval_step, opt.output_dir)]
                             )
         if trainer.fit(model, train_loader) == 1:

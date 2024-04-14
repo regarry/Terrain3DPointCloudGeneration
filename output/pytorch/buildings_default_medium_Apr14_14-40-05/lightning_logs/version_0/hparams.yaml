@@ -1,0 +1,54 @@
+activate_eval: 0
+activation: ReLU
+argment_mode: 0
+argment_noise: 0.01
+batch_norm: ln
+batch_size: 128
+beta1_des: 0.9
+category: buildings
+checkpoint_path: output/pytorch/buildings_default_medium_Apr12_22-54-10/lightning_logs/version_0/checkpoints/epoch=45-step=182.ckpt
+cuda: 0,1,2,3
+data_path: data
+data_size: 512
+debug: 99
+device: cuda:0,1,2,3
+do_evaluation: 1
+drop_last: false
+eval_step: 50
+fp16: None
+gradient_accumulation_steps: 1
+hidden_size:
+- - 64
+  - 64
+  - 128
+  - 256
+  - 1024
+- - 512
+  - 256
+  - 128
+  - 64
+langevin_clip: 1
+langevin_decay: 0
+learning_mode: 0
+lr: 0.0005
+lr_decay: 0.998
+mode: train
+net_type: default
+noise_decay: 0
+normalize: ebp
+num_chain: 1
+num_point: 2048
+num_steps: 2000
+output_dir: output/pytorch/buildings_default_medium_Apr14_14-40-05
+point_dim: 3
+random_sample: 1
+ref_sigma: 0.3
+sample_step: 64
+seed: 666
+shuffle: true
+stable_check: 1
+step_size: 0.01
+swap_axis: true
+test_size: 16
+visualize_mode: 0
+warm_start: 0
