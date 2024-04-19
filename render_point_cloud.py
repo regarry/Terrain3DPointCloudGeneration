@@ -8,14 +8,15 @@ parser = argparse.ArgumentParser(description='Process some NPY.')
 parser.add_argument('-d', dest='datafile', type=str, help='The data file path')
 parser.add_argument('-e', dest='elevation', type=int, default=70, help='Elevation angle')
 parser.add_argument('-a', dest='azimuth', type=int, default=30, help='Azimuth angle')
+parser.add_argument('-i', dest='i', type=int, default=0, help='Index of the data to visualize')
 
 args = parser.parse_args()
 data = np.load(args.datafile)
 print(data.shape)
 if data.shape[2] == 3:
-    cloud = data[0,:,:]
+    cloud = data[args.i,:,:]
 else:
-    cloud = data[0,:,:].T
+    cloud = data[args.i,:,:].T
 print(cloud.shape)
 
 # Create a new matplotlib figure and 3D axes
@@ -34,4 +35,4 @@ folder = "visuals"
 filename = os.path.basename(args.datafile)
 if not os.path.exists(folder):
     os.makedirs(folder)
-plt.savefig(f"{folder}/{filename}_e_{args.elevation}_a_{args.azimuth}.png")
+plt.savefig(f"{folder}/{filename}_i_{args.i}_e_{args.elevation}_a_{args.azimuth}.png")

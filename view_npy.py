@@ -4,7 +4,7 @@ import argparse
 
 if __name__ == '__main__':
     ### parse arguments for data file path
-    parser = argparse.ArgumentParser(description='Process some NPY.')
+    parser = argparse.ArgumentParser(description='Process some NPY files.')
     parser.add_argument('-d', dest='datafile', type=str, help='The data file path')
 
     # Parse the arguments
