@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib as mpl
 import os 
 import time
+import random
 
 # start_time = time.time()
 
@@ -11,7 +12,6 @@ class preprocessor():
         self.input_path = input_path
         self.coord_paths = self.collect_paths(input_path)
         self.split_paths()
-        self.placeholder_count = 0  # Counter variable
     
     def collect_paths(self, input_path):
         coord_paths = []
@@ -28,15 +28,20 @@ class preprocessor():
     def normalize(self,data):
         return 2 * (data - np.min(data)) / (np.max(data) - np.min(data)) - 1
     
-    def split_paths(self, test_ratio=0.1):
-        num_paths = len(self.coord_paths)
-        num_test = int(test_ratio * num_paths)
-        num_train = num_paths - num_test
-        self.train_paths = self.coord_paths[:num_train]
-        self.test_paths = self.coord_paths[num_train:]
-        return None
+    def split_paths(self, test_ratio=0.1, shuffle_paths=False):
+            num_paths = len(self.coord_paths)
+            num_test = int(test_ratio * num_paths)
+            num_train = num_paths - num_test
+            
+            if shuffle_paths:
+                random.shuffle(self.coord_paths)
+            
+            self.train_paths = self.coord_paths[:num_train]
+            self.test_paths = self.coord_paths[num_train:]
+            return None
     
     def generate_matrices(self, num_coordinates = 2048, num_samples = 32, set_name = 'train',feature = 5):
+        skip_count = 0
         matrix_output_folder = self.input_path + 'output'
         os.makedirs(matrix_output_folder, exist_ok=True)
         point_cloud_objects = []
@@ -58,7 +63,7 @@ class preprocessor():
                     #point_cloud_objects[sample_number] = normalized_point_cloud_object
                                 
             elif len(raw_point_cloud) < num_coordinates:
-                self.placeholder_count += 1
+                skip_count += 1
                 """print(f'{file} has less than {num_coordinates} points for label {feature}... padding')
                 for sample_number in range(num_samples):
                     point_cloud_object = np.pad(raw_point_cloud, ((0,num_coordinates-len(raw_point_cloud)),(0,0)), 'wrap')
@@ -72,7 +77,7 @@ class preprocessor():
         for j in range(normalized_stacked_point_cloud_objects.shape[2]):
             normalized_stacked_point_cloud_objects[:,:,j] = self.normalize(normalized_stacked_point_cloud_objects[:,:,j])
         print(normalized_stacked_point_cloud_objects.shape)
-        print(f'{self.placeholder_count} files had less than {num_coordinates} points and were skipped')
+        print(f'{skip_count} files had less than {num_coordinates} points and were skipped')
         #name_table = {0:"unlabeled", 1:"man_made", 2:"natural", 3:"high_veg",4:"low_veg",5:"buildings",6:"hard_scape",7:"artifacts",8:"cars"}
         np.save(f"building3d_{num_coordinates}_{num_samples}_{set_name}.npy", normalized_stacked_point_cloud_objects, allow_pickle=False)
                 

@@ -9,11 +9,13 @@ import json
 import os 
 import sys
 import time
+#import pdb
 sys.path.append('.')
 sys.path.append('./src')
 
 # Main
 import torch 
+import torch.nn.functional as F
 import pytorch_lightning as pl 
 from utils import data_util
 from utils import util_torch
@@ -114,7 +116,7 @@ class GPointNet(pl.LightningModule):
         self.log('syn/scale_max', syn_pcs.max())
         self.log('syn/scale_min', syn_pcs.min())
 
-        if self.C.stable_check and var.cpu().data.numpy() > self.C.ref_sigma**2 + 0.1:
+        if False and self.C.stable_check and var.cpu().data.numpy() > self.C.ref_sigma**2 + 0.1:
             # Activate stable check if var is bigger than threshold. 
             # Resample 10 times, if every one is bigger than threshold, load previous checkpoint. 
             print("Stable check activated : var = %.4f" % var.cpu().data.numpy())
@@ -132,7 +134,7 @@ class GPointNet(pl.LightningModule):
                     train_loss = syn_res - obs_res
                     break 
             if i == 9: 
-                last_checkpoint = self.current_step - (self.current_step % self.C.eval_step)
+                last_checkpoint = trainer.current_step - (self.current_step % self.C.eval_step)
                 self.global_fault += 1 
                 if self.global_fault > 10: 
                     raise ValueError("[Iteration] Restore happened more than 10 times.")
@@ -141,8 +143,8 @@ class GPointNet(pl.LightningModule):
                 return {'loss': torch.zeros((1), device=batch.device, requires_grad=True), 'syn_pcs': syn_pcs}
         if self.C.warm_start:
             self.syn_buffer[batch_idx] = syn_pcs
-        if abs(train_loss.cpu().data.numpy()) > 1e7:
-            raise ValueError("[Iteration] train_loss larger than 1e7 found.")
+        """if abs(train_loss.cpu().data.numpy()) > 1e7:
+            raise ValueError("[Iteration] train_loss larger than 1e7 found.")"""
         return {'loss': train_loss, 'syn_pcs': syn_pcs} 
     
     def configure_optimizers(self):
@@ -177,11 +179,13 @@ class CheckpointEveryNSteps(pl.Callback):
             model.logger.experiment.add_figure("syn/synthesis", util_torch.visualize(samples, num_rows=5, num_cols=4, mode=0), current_step)
             model.logger.experiment.add_image("syn/black_syn", util_torch.visualize(samples, num_rows=5, num_cols=4, mode=1, output_filename='%s/des_syn_%d.png' % (self.output_dir, current_step)), current_step, dataformats='HW')
             if model.C.do_evaluation == 1:
-                test_data = np.load("%s/%s_test.npy" %(model.C.data_path, model.C.category))[:model.C.test_size]
+                test_data = np.load("%s/%s_test.npy" % (model.C.data_path, model.C.category))[:model.C.test_size]
+                #pdb.set_trace()
                 if model.C.normalize == "per_shape": 
                     samples = samples[:model.C.test_size] + test_data.mean(axis=1, keepdims=True).repeat(samples.shape[1], axis=1)
                     samples = samples / np.abs(test_data).max(axis=1, keepdims=True).repeat(samples.shape[1], axis=1)
                 dic = util_torch.quantitative_analysis(samples, test_data, model.C.batch_size, full=False)
+                #pdb.set_trace()
                 for name, scalar in dic.items():
                     model.logger.experiment.add_scalar('syn/%s' % name, scalar, current_step)
             elif model.C.do_evaluation == 2:
@@ -189,6 +193,7 @@ class CheckpointEveryNSteps(pl.Callback):
                 for k, v in dic.items(): 
                     for name, scalar in v.items():
                         model.logger.experiment.add_scalar('syn/%s' % name, scalar, k)
+                        
             trainer.save_checkpoint(self.output_dir + "/checkpoint_%d.ckpt" % current_step)
 
 def parse_config():
@@ -233,7 +238,7 @@ def parse_config():
     parser.add_argument('-eval_step', type=int, default=50)
     parser.add_argument('-drop_last', action='store_true')
     parser.add_argument('-mode', type=str, default="train", help='')
-    parser.add_argument('-data_size', type=int, default=10000)
+    parser.add_argument('-data_size', type=int, default=50000)
     parser.add_argument('-test_size', type=int, default=16)
     parser.add_argument('-debug', type=int, default=99, help='')
     parser.add_argument('-cuda', type=str, default="-1", help='')
@@ -256,12 +261,16 @@ def main(opt):
             root_dir=opt.data_path, 
             random_subsample=True)
         train_loader = torch.utils.data.DataLoader(train_data, batch_size=opt.batch_size, 
-        shuffle=opt.shuffle, num_workers=torch.cuda.device_count() * 4)
+        shuffle=opt.shuffle, num_workers=8)
     else: 
         train_data = util_torch.PointCloudDataSet(opt)
         data_collator = util_torch.PointCloudDataCollator(opt)
-        train_loader = torch.utils.data.DataLoader(train_data, batch_size=opt.batch_size, drop_last=opt.drop_last, 
-        shuffle=opt.shuffle, collate_fn = data_collator, num_workers=torch.cuda.device_count() * 4)
+        train_loader = torch.utils.data.DataLoader(train_data, 
+                                                   batch_size=opt.batch_size, 
+                                                   drop_last=opt.drop_last, 
+                                                   shuffle=opt.shuffle, 
+                                                   collate_fn = data_collator, 
+                                                   num_workers=8)
     util_torch.save_evaluation_ref(train_loader, opt.category)
     if opt.cuda == "-1":
         opt.cuda = 1
@@ -337,8 +346,9 @@ if __name__ == '__main__':
     opt = pre_process(opt)
     try: 
         main(opt)
-        data_util.PushNotification().post_text("[GPointNet] %s finished!" % opt.output_dir)
+        #data_util.PushNotification().post_text("[GPointNet] %s finished!" % opt.output_dir)
     except Exception as e:
-        error = traceback.format_exc().split('\n')
-        print(traceback.format_exc()) 
-        data_util.PushNotification().post_text("[GPointNet] FAILED in %s! Error message: %s" % (opt.output_dir,"\n".join(error[-2:])))
+        extype, value, tb = sys.exc_info()
+        traceback.print_exc()
+        #pdb.post_mortem(tb)
+        #data_util.PushNotification().post_text("[GPointNet] FAILED in %s! Error message: %s" % (opt.output_dir,"\n".join(error[-2:])))
